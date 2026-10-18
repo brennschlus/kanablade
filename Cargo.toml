@@ -2,10 +2,22 @@
 name = "kanablade"
 version = "0.1.0"
 edition = "2024"
+description = "Zen karaoke-style Japanese typing trainer"
 
 [dependencies]
 bevy = { version = "0.20", default-features = false, features = ["2d", "default_font", "png"] }
 kira = "0.12"
+
+# Window icon: the resource embedded by build.rs on Windows, a PNG on X11.
+# Same versions Bevy already pulls in, so nothing new gets compiled.
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+winit = { version = "0.30", default-features = false }
+[target.'cfg(target_os = "linux")'.dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+# Icon and version info for the .exe, see build.rs.
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [profile.dev]
 opt-level = 1

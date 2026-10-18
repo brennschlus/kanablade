@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.brennschlus.kanablade</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <name>kanablade</name>
+  <developer id="io.github.brennschlus">
+    <name>brennschlus</name>
+  </developer>
+  <summary>Zen karaoke-style Japanese typing trainer</summary>
+  <summary xml:lang="ru">Дзен-тренажёр набора японского текста</summary>
+  <description>
+    <p>
+      A phrase appears like karaoke lyrics. Type it in romaji letter by letter,
+      and every syllable lights up gold and rings a note.
+    </p>
+    <p xml:lang="ru">
+      Фраза появляется как в караоке. Её набирают ромадзи по буквам,
+      и каждый слог загорается золотом и звучит нотой.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.brennschlus.kanablade.desktop</launchable>
+  <provides>
+    <binary>kanablade</binary>
+  </provides>
+  <categories>
+    <category>Education</category>
+    <category>Languages</category>
+  </categories>
+  <url type="homepage">https://github.com/brennschlus/kanablade</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-18"/>
+  </releases>
+</component>

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Name=kanablade
+GenericName=Japanese Typing Trainer
+GenericName[ru]=Тренажёр японского набора
+Comment=Type Japanese in romaji, karaoke style
+Comment[ru]=Набор японских фраз ромадзи в стиле караоке
+Exec=kanablade %f
+Icon=io.github.brennschlus.kanablade
+Terminal=false
+Categories=Education;Languages;
+Keywords=japanese;kana;hiragana;katakana;romaji;typing;zen;
+Keywords[ru]=японский;кана;хирагана;катакана;ромадзи;набор;дзен;
+MimeType=text/plain;
+StartupWMClass=io.github.brennschlus.kanablade
+SingleMainWindow=true

@@ -8,6 +8,20 @@ cargo run --release -- my.txt       # свои фразы
 cargo run --release -- --no-vsync   # минимальная задержка ценой разрывов кадра
 ```
 
+## Установка
+
+Сборки для всех систем лежат в [Releases](https://github.com/brennschlus/kanablade/releases) (для тега `v*`) и в артефактах каждого прогона Actions.
+
+- **macOS** (`.dmg`, universal: Apple Silicon и Intel): перетащить kanablade в «Программы». Сборка не нотаризована,
+  поэтому первый запуск через правый клик → «Открыть».
+- **Windows** (`.zip`): один `kanablade.exe` с иконкой и описанием в свойствах файла, без консольного окна.
+- **Linux** (`.tar.gz`, x86_64 и aarch64, glibc ≥ 2.35): `./install.sh` кладёт программу в `~/.local`
+  вместе с ярлыком в меню и иконками (`PREFIX=/usr/local` для всей системы, `--uninstall` для удаления).
+  Бинарник из `bin/` работает и без установки.
+
+Собрать пакет локально: `packaging/linux/package.sh`, `packaging/macos/package.sh`, `packaging/windows/package.ps1`, результат в `dist/`.
+Иконки генерирует `packaging/icons/render.py` (нужен Pillow).
+
 ## Управление
 
 | Клавиша | Действие |
@@ -50,4 +64,6 @@ src/corpus.rs  разбор фуриганы, встроенные фразы
 src/audio.rs   синтез и воспроизведение
 src/scene.rs   сцена, ввод, анимации
 src/demo.rs    KANABLADE_DEMO=<dir>: автонабор и скриншоты для проверки
+build.rs       иконка и сведения о версии в .exe (Windows)
+packaging/     иконки, .desktop и metainfo, Info.plist, скрипты сборки пакетов
 ```
