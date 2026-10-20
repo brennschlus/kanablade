@@ -3,6 +3,7 @@
 //! The game only sends tiny `Cue`s over a channel, so a key press reaches the
 //! mixer within microseconds; the cpal buffer is kept small for low latency.
 
+use crate::rng::Rng;
 use bevy::prelude::*;
 use kira::{
     AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Frame, Mix, Tween,
@@ -107,16 +108,14 @@ fn audio_thread(rx: mpsc::Receiver<Cue>) {
 
     let mut room: Option<TrackHandle> = manager
         .add_sub_track(
-            TrackBuilder::new()
-                .with_effect(ReverbBuilder::new().feedback(0.88).damping(0.55).mix(Mix(0.32))),
+            TrackBuilder::new().with_effect(ReverbBuilder::new().feedback(0.88).damping(0.55).mix(Mix(0.32))),
         )
         .ok();
-    let mut dry: Option<TrackHandle> = manager
-        .add_sub_track(TrackBuilder::new().with_effect(FilterBuilder::new().cutoff(9000.0)))
-        .ok();
+    let mut dry: Option<TrackHandle> =
+        manager.add_sub_track(TrackBuilder::new().with_effect(FilterBuilder::new().cutoff(9000.0))).ok();
 
     let bank = Bank::synthesize();
-    let mut rng = Rng(0x9E37_79B9);
+    let mut rng = Rng::new(0x9E37_79B9);
     let mut muted = false;
 
     let mut ambient: Option<StaticSoundHandle> = manager.play(bank.ambient.clone()).ok();
@@ -158,28 +157,6 @@ fn audio_thread(rx: mpsc::Receiver<Cue>) {
     }
 }
 
-struct Rng(u32);
-
-impl Rng {
-    fn next(&mut self) -> u32 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.0 = x;
-        x
-    }
-    fn unit(&mut self) -> f32 {
-        self.next() as f32 / u32::MAX as f32
-    }
-    fn noise(&mut self) -> f32 {
-        self.unit() * 2.0 - 1.0
-    }
-    fn below(&mut self, n: usize) -> usize {
-        self.next() as usize % n
-    }
-}
-
 fn sound(samples: Vec<Frame>, volume_db: f32) -> StaticSoundData {
     StaticSoundData {
         sample_rate: RATE,
@@ -199,7 +176,7 @@ fn len(secs: f32) -> usize {
 
 impl Bank {
     fn synthesize() -> Self {
-        let mut rng = Rng(12345);
+        let mut rng = Rng::new(12345);
         let keys = (0..4).map(|v| sound(key_click(&mut rng, v), -13.0)).collect();
         // Two and a half octaves of the scale: D3 .. A5.
         let notes = (-5..8)
@@ -251,9 +228,7 @@ fn pluck(freq: f32) -> Vec<Frame> {
         .collect();
     // Tiny stereo detune for width.
     let d = (RATE as f32 * 0.0007) as usize;
-    (0..n)
-        .map(|i| Frame { left: samples[i], right: samples[i.saturating_sub(d)] })
-        .collect()
+    (0..n).map(|i| Frame { left: samples[i], right: samples[i.saturating_sub(d)] }).collect()
 }
 
 /// Gentle, low, non-punishing "thup".
@@ -314,10 +289,7 @@ fn ambient(rng: &mut Rng) -> Vec<Frame> {
             wind_l += (rng.noise() - wind_l) * 0.012;
             wind_r += (rng.noise() - wind_r) * 0.012;
             let gust = 0.5 + 0.5 * (TAU * t / secs * 3.0).sin().powi(2);
-            Frame {
-                left: s * breath * 0.6 + wind_l * 1.6 * gust,
-                right: s * breath * 0.6 + wind_r * 1.6 * gust,
-            }
+            Frame { left: s * breath * 0.6 + wind_l * 1.6 * gust, right: s * breath * 0.6 + wind_r * 1.6 * gust }
         })
         .collect();
     // Crossfade the noise seam.

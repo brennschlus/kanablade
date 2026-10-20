@@ -111,9 +111,10 @@ pub fn parse_line(src: &str) -> Option<Line> {
                 if !is_kanji(*k) {
                     break;
                 }
-                base.insert(0, *k);
+                base.push(*k);
                 pieces.pop();
             }
+            base.reverse();
             if base.is_empty() {
                 // A reading with nothing to attach to: type it as plain kana.
                 pieces.extend(reading.into_iter().map(Piece::Kana));
@@ -138,10 +139,8 @@ pub fn parse_line(src: &str) -> Option<Line> {
                 while matches!(pieces.get(i), Some(Piece::Kana(_))) {
                     i += 1;
                 }
-                let run: Vec<char> = pieces[start..i]
-                    .iter()
-                    .map(|p| if let Piece::Kana(c) = p { *c } else { unreachable!() })
-                    .collect();
+                let run: Vec<char> =
+                    pieces[start..i].iter().map(|p| if let Piece::Kana(c) = p { *c } else { unreachable!() }).collect();
                 let mut glyphs: Vec<Glyph> = run.iter().map(|&ch| Glyph { ch, units: 0..0 }).collect();
                 for (unit, range) in kana::split_units(&run) {
                     let u = line.units.len();

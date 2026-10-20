@@ -4,6 +4,7 @@ use crate::{
     audio::{self, Audio, Cue},
     corpus::Line,
     kana::{self, Matcher},
+    rng::Rng,
 };
 use bevy::{
     asset::RenderAssetUsages,
@@ -109,7 +110,7 @@ struct Session {
     miss_at: f32,
     line_started: f32,
     swallow_n_until: f32,
-    toast: Option<(String, f32)>,
+    toast: Option<(&'static str, f32)>,
 }
 
 impl Session {
@@ -121,47 +122,18 @@ impl Session {
     }
 }
 
-#[derive(Resource)]
+#[derive(Resource, PartialEq)]
 struct View {
     scale: f32,
     size: Vec2,
 }
 
 #[derive(Resource)]
-struct Assets2 {
+struct SceneAssets {
     mincho: Handle<Font>,
     maru: Handle<Font>,
     glow: Handle<Image>,
     ring: Handle<Image>,
-}
-
-#[derive(Resource)]
-struct Rng(u32);
-
-impl Rng {
-    fn seeded() -> Self {
-        let t = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(1, |d| d.subsec_nanos() ^ d.as_secs() as u32);
-        Rng(t | 1)
-    }
-    fn next(&mut self) -> u32 {
-        let mut x = self.0;
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        self.0 = x;
-        x
-    }
-    fn unit(&mut self) -> f32 {
-        self.next() as f32 / u32::MAX as f32
-    }
-    fn range(&mut self, a: f32, b: f32) -> f32 {
-        a + (b - a) * self.unit()
-    }
-    fn below(&mut self, n: usize) -> usize {
-        self.next() as usize % n
-    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -216,8 +188,12 @@ struct Translation {
     alpha: f32,
 }
 
-#[derive(Component)]
-struct Stats(f32);
+#[derive(Component, Default)]
+struct Stats {
+    alpha: f32,
+    /// Numbers currently in the text: kana per minute, accuracy %, phrases.
+    shown: Option<(u32, u32, u32)>,
+}
 
 #[derive(Component)]
 struct Footer(f32);
@@ -323,7 +299,7 @@ fn setup(
     session: Res<Session>,
     mut rng: ResMut<Rng>,
 ) {
-    let a = Assets2 {
+    let a = SceneAssets {
         mincho: fonts.add(Font::from_bytes(include_bytes!("../assets/fonts/ZenOldMincho-Regular.ttf").to_vec())),
         maru: fonts.add(Font::from_bytes(include_bytes!("../assets/fonts/ZenMaruGothic-Medium.ttf").to_vec())),
         glow: images.add(soft_dot(64, false)),
@@ -338,7 +314,11 @@ fn setup(
         Bloom { intensity: 0.22, ..Bloom::NATURAL },
     ));
 
-    commands.spawn((Background, Sprite::from_image(images.add(background_image())), Transform::from_xyz(0.0, 0.0, -10.0)));
+    commands.spawn((
+        Background,
+        Sprite::from_image(images.add(background_image())),
+        Transform::from_xyz(0.0, 0.0, -10.0),
+    ));
 
     for _ in 0..90 {
         let size = rng.range(2.0, 7.0);
@@ -379,7 +359,7 @@ fn setup(
         Scaled(21.0),
         TextColor(Color::NONE),
     ));
-    commands.spawn((Stats(0.0), Text2d::new(""), font(&a.maru, 16.0), Scaled(16.0), TextColor(Color::NONE)));
+    commands.spawn((Stats::default(), Text2d::new(""), font(&a.maru, 16.0), Scaled(16.0), TextColor(Color::NONE)));
     commands.spawn((
         Footer(0.0),
         Text2d::new("Tab — подсказки     F2 — перевод     F3 — звук     Enter — следующая фраза     F11 — полный экран     Esc — выход"),
@@ -392,15 +372,29 @@ fn setup(
     commands.insert_resource(a);
 }
 
-fn glyph_px(line: &Line) -> f32 {
-    GLYPH_PX.min(1120.0 / (line.glyphs.len() as f32 * 1.04))
+/// Horizontal layout of a line's glyphs, in design pixels.
+struct Layout {
+    px: f32,
+    adv: f32,
+    n: f32,
 }
 
-fn spawn_line(commands: &mut Commands, a: &Assets2, line: &Line, role: Role) -> Entity {
-    let px = glyph_px(line);
-    let adv = px * 1.04;
-    let n = line.glyphs.len() as f32;
-    let x_of = |i: usize| (i as f32 + 0.5 - n / 2.0) * adv;
+impl Layout {
+    fn of(line: &Line) -> Self {
+        let n = line.glyphs.len() as f32;
+        let px = GLYPH_PX.min(1120.0 / (n * 1.04));
+        Layout { px, adv: px * 1.04, n }
+    }
+
+    /// Center of glyph `i`.
+    fn x(&self, i: usize) -> f32 {
+        (i as f32 + 0.5 - self.n / 2.0) * self.adv
+    }
+}
+
+fn spawn_line(commands: &mut Commands, a: &SceneAssets, line: &Line, role: Role) -> Entity {
+    let layout = Layout::of(line);
+    let px = layout.px;
     let (y, scale) = match role {
         Role::Current => (LINE_Y, 1.0),
         _ => (NEXT_Y - 40.0, NEXT_SCALE),
@@ -418,14 +412,14 @@ fn spawn_line(commands: &mut Commands, a: &Assets2, line: &Line, role: Role) -> 
                     font(&a.mincho, px),
                     Scaled(px),
                     TextColor(Color::NONE),
-                    Slot(Vec2::new(x_of(i), 0.0)),
+                    Slot(Vec2::new(layout.x(i), 0.0)),
                     Lit { units: g.units.clone(), lit: 0.0, pop: 0.0, full: false, ruby: false },
                     Transform::default(),
                 ));
             }
             let rpx = (px * 0.36).max(13.0);
             for r in &line.rubies {
-                let cx = (x_of(r.glyphs.start) + x_of(r.glyphs.end - 1)) / 2.0;
+                let cx = (layout.x(r.glyphs.start) + layout.x(r.glyphs.end - 1)) / 2.0;
                 let rn = r.chars.len() as f32;
                 for (j, c) in r.chars.iter().enumerate() {
                     let x = cx + (j as f32 + 0.5 - rn / 2.0) * rpx * 1.02;
@@ -447,6 +441,7 @@ fn spawn_line(commands: &mut Commands, a: &Assets2, line: &Line, role: Role) -> 
 // ---------------------------------------------------------------------------
 // Input
 
+#[rustfmt::skip]
 fn letter(code: KeyCode) -> Option<char> {
     use KeyCode::*;
     let c = match code {
@@ -470,16 +465,25 @@ fn handle_input(
     mut roots: Query<(Entity, &mut LineRoot)>,
     mut window: Single<&mut Window, With<PrimaryWindow>>,
     mut exit: MessageWriter<AppExit>,
-    a: Option<Res<Assets2>>,
+    a: Res<SceneAssets>,
     view: Res<View>,
     time: Res<Time>,
 ) {
-    let Some(a) = a else { return };
     let now = time.elapsed_secs();
     let s = &mut *session;
 
     if now - s.last_key < 3.0 {
         s.active_secs += time.delta_secs();
+    }
+
+    // advance() retags roots through the query, which cannot see the root it just spawned until commands
+    // are applied: a second advance in the same frame would leave two "next" lines. So at most one per frame;
+    // a line finished after that advances at the start of the next frame.
+    let mut advanced = false;
+    if s.matcher.is_done() {
+        audio.play(Cue::LineDone);
+        advance(&mut commands, s, &mut roots, &a, &view, now, true);
+        advanced = true;
     }
 
     for ev in keys.read() {
@@ -507,24 +511,26 @@ fn handle_input(
                     HintMode::Syllable => "ромадзи: только текущий слог",
                     HintMode::Hidden => "ромадзи: скрыто (появится, если задумаешься)",
                 };
-                s.toast = Some((label.into(), now));
+                s.toast = Some((label, now));
             }
             KeyCode::F2 => {
                 s.show_translation = !s.show_translation;
-                let label = if s.show_translation { "перевод: показан" } else { "перевод: скрыт" };
-                s.toast = Some((label.into(), now));
+                let label =
+                    if s.show_translation { "перевод: показан" } else { "перевод: скрыт" };
+                s.toast = Some((label, now));
             }
             KeyCode::F3 => {
                 audio.toggle_mute();
                 let label = if audio.muted { "звук: выключен" } else { "звук: включён" };
-                s.toast = Some((label.into(), now));
+                s.toast = Some((label, now));
             }
-            KeyCode::Enter | KeyCode::NumpadEnter if !ev.repeat => {
+            KeyCode::Enter | KeyCode::NumpadEnter if !ev.repeat && !advanced => {
                 advance(&mut commands, s, &mut roots, &a, &view, now, false);
+                advanced = true;
             }
             code => {
                 let Some(c) = letter(code) else { continue };
-                if ev.repeat {
+                if ev.repeat || s.matcher.is_done() {
                     continue;
                 }
                 s.last_key = now;
@@ -547,14 +553,15 @@ fn handle_input(
                 for r in &out.completed {
                     s.units_done += r.len() as u32;
                     let unit = &s.matcher.units()[r.end - 1];
-                    audio.play(Cue::Note(audio::degree_for(&kana::preferred(unit), r.start)));
+                    audio.play(Cue::Note(audio::degree_for(kana::preferred(unit), r.start)));
                 }
                 if out.lone_n_at_end {
                     s.swallow_n_until = now + 0.8;
                 }
-                if s.matcher.is_done() {
+                if s.matcher.is_done() && !advanced {
                     audio.play(Cue::LineDone);
                     advance(&mut commands, s, &mut roots, &a, &view, now, true);
+                    advanced = true;
                 }
             }
         }
@@ -565,7 +572,7 @@ fn advance(
     commands: &mut Commands,
     s: &mut Session,
     roots: &mut Query<(Entity, &mut LineRoot)>,
-    a: &Assets2,
+    a: &SceneAssets,
     view: &View,
     now: f32,
     finished: bool,
@@ -595,7 +602,9 @@ fn advance(
     s.at += 1;
     s.matcher = Matcher::new(s.current().units.clone());
     s.line_started = now;
-    s.swallow_n_until = if finished { s.swallow_n_until } else { 0.0 };
+    if !finished {
+        s.swallow_n_until = 0.0;
+    }
     spawn_line(commands, a, s.line_at(s.at + 1), Role::Next);
 }
 
@@ -611,12 +620,7 @@ fn update_view(window: Single<&Window, With<PrimaryWindow>>, mut view: ResMut<Vi
     let scale = (size.x / DESIGN.x).min(size.y / DESIGN.y).max(0.4);
     // Quantize so that font atlases are not regenerated on every resize step.
     let scale = (scale * 20.0).round() / 20.0;
-    if view.size != size {
-        view.size = size;
-    }
-    if view.scale != scale {
-        view.scale = scale;
-    }
+    view.set_if_neq(View { scale, size });
 }
 
 fn rescale_text(view: Res<View>, mut q: Query<(Ref<Scaled>, &mut TextFont)>) {
@@ -660,12 +664,11 @@ fn animate_glyphs(
     session: Res<Session>,
     roots: Query<&LineRoot>,
     mut q: Query<(&ChildOf, &Slot, &mut Lit, &mut Transform, &mut TextColor)>,
-    a: Option<Res<Assets2>>,
+    a: Res<SceneAssets>,
     mut rng: ResMut<Rng>,
     view: Res<View>,
     time: Res<Time>,
 ) {
-    let Some(a) = a else { return };
     let dt = time.delta_secs();
     let now = time.elapsed_secs();
     let s = view.scale;
@@ -701,7 +704,12 @@ fn animate_glyphs(
                     let max = rng.range(0.5, 1.1);
                     commands.spawn((
                         Spark { vel: Vec2::from_angle(ang) * speed, life: 0.0, max, size: rng.range(3.0, 7.0) * s },
-                        Sprite { image: a.glow.clone(), color: Color::NONE, custom_size: Some(Vec2::ZERO), ..default() },
+                        Sprite {
+                            image: a.glow.clone(),
+                            color: Color::NONE,
+                            custom_size: Some(Vec2::ZERO),
+                            ..default()
+                        },
                         Transform::from_xyz(origin.x + rng.range(-12.0, 12.0) * s, origin.y, 1.0),
                     ));
                 }
@@ -729,21 +737,12 @@ fn animate_glyphs(
 fn cursor_target(session: &Session, s: f32) -> Option<Vec2> {
     let line = session.current();
     let pos = session.matcher.pos();
-    let px = glyph_px(line);
-    let adv = px * 1.04;
-    let n = line.glyphs.len() as f32;
-    let xs: Vec<f32> = line
-        .glyphs
-        .iter()
-        .enumerate()
-        .filter(|(_, g)| g.units.start <= pos && pos < g.units.end)
-        .map(|(i, _)| (i as f32 + 0.5 - n / 2.0) * adv)
-        .collect();
-    if xs.is_empty() {
-        return None;
-    }
-    let x = (xs[0] + xs[xs.len() - 1]) / 2.0;
-    Some(Vec2::new(x, LINE_Y - px * 0.72) * s)
+    let layout = Layout::of(line);
+    let mut glyphs = line.glyphs.iter().enumerate().filter(|(_, g)| g.units.contains(&pos)).map(|(i, _)| i);
+    let first = glyphs.next()?;
+    let last = glyphs.next_back().unwrap_or(first);
+    let x = (layout.x(first) + layout.x(last)) / 2.0;
+    Some(Vec2::new(x, LINE_Y - layout.px * 0.72) * s)
 }
 
 fn update_cursor(
@@ -773,39 +772,61 @@ fn update_cursor(
     tf.translation = cursor.pos.extend(0.5);
 }
 
+/// What the romaji text depends on. It is rebuilt only when this changes, not every frame.
+#[derive(Default)]
+struct RomajiKey {
+    at: usize,
+    pos: usize,
+    buf: String,
+    hint: Option<HintMode>,
+}
+
+/// Span texts: typed chunks, the current buffer, the rest of the current chunk, the preview.
+fn romaji_texts(m: &Matcher, hint: HintMode) -> [String; 4] {
+    let buf = m.buffer();
+    let current = m.current_hint().map(|c| c.romaji).unwrap_or_default();
+    let rest_of_current = current.get(buf.len()..).unwrap_or("").to_owned();
+    if hint != HintMode::Full {
+        return [String::new(), buf.to_owned(), rest_of_current, String::new()];
+    }
+    let mut typed = m.typed().join(" ");
+    if !typed.is_empty() {
+        typed.push(' ');
+    }
+    let mut rest = m.preview_after_current().join(" ");
+    if !rest.is_empty() {
+        rest.insert(0, ' ');
+    }
+    [typed, buf.to_owned(), rest_of_current, rest]
+}
+
 fn update_romaji(
     session: Res<Session>,
     root: Single<(&mut Transform, &Children), With<RomajiLine>>,
     mut spans: Query<(&RomajiSpan, &mut TextSpan, &mut TextColor)>,
     cursor: Single<&Cursor>,
+    mut key: Local<RomajiKey>,
     view: Res<View>,
     time: Res<Time>,
 ) {
     let now = time.elapsed_secs();
     let m = &session.matcher;
-    let hint = m.current_hint().map(|c| c.romaji).unwrap_or_default();
-    let buf = m.buffer().to_string();
-    let rest_of_current = hint.get(buf.len()..).unwrap_or("").to_string();
+    let stale = key.at != session.at || key.pos != m.pos() || key.buf != m.buffer() || key.hint != Some(session.hint);
+    let mut texts = stale.then(|| {
+        key.at = session.at;
+        key.pos = m.pos();
+        key.buf.clear();
+        key.buf.push_str(m.buffer());
+        key.hint = Some(session.hint);
+        romaji_texts(m, session.hint)
+    });
 
     let hesitating = now - session.last_key.max(session.line_started) > 3.0;
     let missed = now - session.miss_at < 2.5;
-    let (texts, alpha, follow_cursor): ([String; 4], f32, bool) = match session.hint {
-        HintMode::Full => {
-            let mut typed = m.typed().join(" ");
-            if !typed.is_empty() {
-                typed.push(' ');
-            }
-            let mut rest = m.preview_after_current().join(" ");
-            if !rest.is_empty() {
-                rest.insert(0, ' ');
-            }
-            ([typed, buf, rest_of_current, rest], 1.0, false)
-        }
-        HintMode::Syllable => ([String::new(), buf, rest_of_current, String::new()], 1.0, true),
-        HintMode::Hidden => {
-            let a = if hesitating || missed { 0.6 } else { 0.0 };
-            ([String::new(), buf, rest_of_current, String::new()], a, true)
-        }
+    let (alpha, follow_cursor) = match session.hint {
+        HintMode::Full => (1.0, false),
+        HintMode::Syllable => (1.0, true),
+        HintMode::Hidden => (if hesitating || missed { 0.6 } else { 0.0 }, true),
     };
 
     let (mut tf, children) = root.into_inner();
@@ -821,8 +842,10 @@ fn update_romaji(
     ];
     for &child in children {
         if let Ok((span, mut text, mut color)) = spans.get_mut(child) {
-            if text.0 != texts[span.0] {
-                text.0 = texts[span.0].clone();
+            if let Some(texts) = &mut texts
+                && text.0 != texts[span.0]
+            {
+                text.0 = std::mem::take(&mut texts[span.0]);
             }
             color.set_if_neq(TextColor(colors[span.0]));
         }
@@ -832,10 +855,16 @@ fn update_romaji(
 #[allow(clippy::type_complexity)]
 fn update_overlay(
     mut session: ResMut<Session>,
-    mut tr: Single<(&mut Translation, &mut Text2d, &mut TextColor, &mut Transform), (Without<Stats>, Without<Footer>, Without<Toast>)>,
+    mut tr: Single<
+        (&mut Translation, &mut Text2d, &mut TextColor, &mut Transform),
+        (Without<Stats>, Without<Footer>, Without<Toast>),
+    >,
     mut stats: Single<(&mut Stats, &mut Text2d, &mut TextColor, &mut Transform), (Without<Footer>, Without<Toast>)>,
     mut footer: Single<(&mut Footer, &mut TextColor, &mut Transform), Without<Toast>>,
-    mut toast: Single<(&mut Text2d, &mut TextColor, &mut Transform), (With<Toast>, Without<Stats>, Without<Translation>)>,
+    mut toast: Single<
+        (&mut Text2d, &mut TextColor, &mut Transform),
+        (With<Toast>, Without<Stats>, Without<Translation>),
+    >,
     view: Res<View>,
     time: Res<Time>,
 ) {
@@ -865,12 +894,15 @@ fn update_overlay(
     let total = session.keys_ok + session.keys_miss;
     let acc = if total == 0 { 100.0 } else { session.keys_ok as f32 * 100.0 / total as f32 };
     let kpm = if minutes > 0.05 { session.units_done as f32 / minutes } else { 0.0 };
-    let line = format!("{kpm:.0} кана/мин   ·   точность {acc:.0}%   ·   фраз {}", session.lines_done);
-    if text.0 != line {
-        text.0 = line;
+    // kpm drifts every frame while typing; only format when a displayed number changes.
+    let shown = (kpm.round() as u32, acc.round() as u32, session.lines_done);
+    if st.shown != Some(shown) {
+        st.shown = Some(shown);
+        let (kpm, acc, lines) = shown;
+        text.0 = format!("{kpm} кана/мин   ·   точность {acc}%   ·   фраз {lines}");
     }
-    st.0 += ((if idle { 0.5 } else { 0.16 }) - st.0) * smooth(2.0, dt);
-    color.0 = lin(Vec3::new(0.7, 0.68, 0.66), st.0);
+    st.alpha += ((if idle { 0.5 } else { 0.16 }) - st.alpha) * smooth(2.0, dt);
+    color.0 = lin(Vec3::new(0.7, 0.68, 0.66), st.alpha);
     tf.translation = Vec3::new(0.0, view.size.y / 2.0 - 34.0 * s, 0.0);
 
     let (f, color, tf) = &mut *footer;
@@ -880,10 +912,10 @@ fn update_overlay(
 
     let (text, color, tf) = &mut *toast;
     let mut a = 0.0;
-    if let Some((msg, at)) = &session.toast {
+    if let Some((msg, at)) = session.toast {
         let age = now - at;
-        if text.0 != *msg {
-            text.0 = msg.clone();
+        if text.0 != msg {
+            text.0 = msg.to_owned();
         }
         a = (age * 8.0).min(1.0) * (1.0 - ((age - 1.6) * 2.0).clamp(0.0, 1.0));
         if age > 2.2 {
@@ -955,5 +987,7 @@ fn update_ripples(
 }
 
 fn update_background(mut q: Single<&mut Sprite, With<Background>>, view: Res<View>) {
-    q.custom_size = Some(view.size);
+    if view.is_changed() {
+        q.custom_size = Some(view.size);
+    }
 }

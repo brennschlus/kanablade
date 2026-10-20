@@ -33,6 +33,7 @@ impl Plugin for DemoPlugin {
 
 fn code(c: char) -> KeyCode {
     use KeyCode::*;
+    #[rustfmt::skip]
     const KEYS: [KeyCode; 26] = [
         KeyA, KeyB, KeyC, KeyD, KeyE, KeyF, KeyG, KeyH, KeyI, KeyJ, KeyK, KeyL, KeyM, KeyN, KeyO, KeyP, KeyQ,
         KeyR, KeyS, KeyT, KeyU, KeyV, KeyW, KeyX, KeyY, KeyZ,

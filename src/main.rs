@@ -5,6 +5,7 @@ mod audio;
 mod corpus;
 mod demo;
 mod kana;
+mod rng;
 mod scene;
 
 use bevy::{
@@ -39,28 +40,27 @@ fn main() {
     }
 
     let mut app = App::new();
-    app
-        .add_plugins(
-            DefaultPlugins
-                .set(WindowPlugin {
-                    primary_window: Some(Window {
-                        title: "kanablade · 禅".into(),
-                        name: Some(APP_ID.into()),
-                        resolution: WindowResolution::new(1280, 760),
-                        present_mode: if no_vsync { PresentMode::AutoNoVsync } else { PresentMode::AutoVsync },
-                        // Never queue frames ahead: the glyph you just typed is on the next scanout.
-                        desired_maximum_frame_latency: NonZero::new(1),
-                        ..default()
-                    }),
+    app.add_plugins(
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "kanablade · 禅".into(),
+                    name: Some(APP_ID.into()),
+                    resolution: WindowResolution::new(1280, 760),
+                    present_mode: if no_vsync { PresentMode::AutoNoVsync } else { PresentMode::AutoVsync },
+                    // Never queue frames ahead: the glyph you just typed is on the next scanout.
+                    desired_maximum_frame_latency: NonZero::new(1),
                     ..default()
-                })
-                .set(RenderPlugin { synchronous_pipeline_compilation: true, ..default() })
-                // Pipelined rendering adds a frame of input latency.
-                .disable::<PipelinedRenderingPlugin>(),
-        )
-        .insert_resource(WinitSettings::game())
-        .insert_resource(ClearColor(Color::srgb(0.035, 0.038, 0.05)))
-        .add_plugins((audio::AudioPlugin, scene::ScenePlugin { lines }));
+                }),
+                ..default()
+            })
+            .set(RenderPlugin { synchronous_pipeline_compilation: true, ..default() })
+            // Pipelined rendering adds a frame of input latency.
+            .disable::<PipelinedRenderingPlugin>(),
+    )
+    .insert_resource(WinitSettings::game())
+    .insert_resource(ClearColor(Color::srgb(0.035, 0.038, 0.05)))
+    .add_plugins((audio::AudioPlugin, scene::ScenePlugin { lines }));
     #[cfg(any(windows, target_os = "linux"))]
     app.add_systems(Update, set_window_icon);
     if let Ok(dir) = std::env::var("KANABLADE_DEMO") {
@@ -87,7 +87,11 @@ fn set_window_icon(
 
         #[cfg(windows)]
         {
-            use winit::{dpi::PhysicalSize, platform::windows::{IconExtWindows, WindowExtWindows}, window::Icon};
+            use winit::{
+                dpi::PhysicalSize,
+                platform::windows::{IconExtWindows, WindowExtWindows},
+                window::Icon,
+            };
             // Windows picks the best match from the .ico: 16pt for the title bar, system size for the taskbar.
             let small = (16.0 * window.scale_factor()).round() as u32;
             window.set_window_icon(Icon::from_resource(1, Some(PhysicalSize::new(small, small))).ok());

@@ -7,6 +7,7 @@
 use std::ops::Range;
 
 /// Preferred spelling first.
+#[rustfmt::skip]
 const TABLE: &[(&str, &[&str])] = &[
     ("あ", &["a"]), ("い", &["i", "yi"]), ("う", &["u", "wu", "whu"]), ("え", &["e"]), ("お", &["o"]),
     ("か", &["ka", "ca"]), ("き", &["ki"]), ("く", &["ku", "cu", "qu"]), ("け", &["ke"]), ("こ", &["ko", "co"]),
@@ -94,9 +95,7 @@ fn unit_spellings(unit: &str) -> Vec<String> {
     if unit == "ん" {
         return vec!["nn".into(), "n'".into(), "xn".into()];
     }
-    let mut v: Vec<String> = lookup(unit)
-        .map(|s| s.iter().map(|s| s.to_string()).collect())
-        .unwrap_or_default();
+    let mut v: Vec<String> = lookup(unit).map(|s| s.iter().map(|s| s.to_string()).collect()).unwrap_or_default();
     // Digraphs can also be typed as their two halves: ki + xya.
     let chars: Vec<char> = unit.chars().collect();
     if chars.len() == 2 {
@@ -116,8 +115,12 @@ fn unit_spellings(unit: &str) -> Vec<String> {
 }
 
 /// The canonical romaji of a single unit (used for musical mapping).
-pub fn preferred(unit: &str) -> String {
-    unit_spellings(unit).into_iter().next().unwrap_or_default()
+pub fn preferred(unit: &str) -> &'static str {
+    // Every unit split_units produces is in the table, so the digraph fallback in unit_spellings never applies.
+    match unit {
+        "ん" => "nn",
+        _ => lookup(unit).and_then(|s| s.first().copied()).unwrap_or(""),
+    }
 }
 
 fn starts_with_vowelish(s: &str) -> bool {
@@ -348,6 +351,13 @@ mod tests {
         assert!(m.input('n').completed.is_empty());
         assert_eq!(m.input('k').completed, vec![1..2]);
         assert_eq!(m.input('i').completed, vec![2..3]);
+    }
+
+    #[test]
+    fn preferred_matches_first_spelling() {
+        for unit in TABLE.iter().map(|(k, _)| *k).chain(["ん"]) {
+            assert_eq!(preferred(unit), unit_spellings(unit)[0], "{unit}");
+        }
     }
 
     #[test]
